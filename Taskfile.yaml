@@ -1,6 +1,7 @@
 version: 3
 
 vars:
+  LINTER_VERSION: v2.13.2
   NESTED_MODULES: api
   API_DIRS: "{{.ROOT_DIR}}/api/v1alpha1/..."
   MANIFEST_OUT: "{{.ROOT_DIR}}/api/crds/manifests"
