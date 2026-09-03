@@ -6,8 +6,10 @@ import (
 
 	openmcpconst "github.com/openmcp-project/openmcp-operator/api/constants"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
 	ctrlutils "github.com/openmcp-project/controller-utils/pkg/controller"
@@ -20,17 +22,23 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/openmcp-project/cluster-provider-k3d/pkg/k3d"
 )
 
 type AccessRequestReconciler struct {
 	platformCluster *clusters.Cluster
 	providerName    string
+	environment     string
+	provider        k3d.Provider
 }
 
-func NewAccessRequestReconciler(platformCluster *clusters.Cluster, providerName string) *AccessRequestReconciler {
+func NewAccessRequestReconciler(platformCluster *clusters.Cluster, providerName, environment string, provider k3d.Provider) *AccessRequestReconciler {
 	return &AccessRequestReconciler{
 		platformCluster: platformCluster,
 		providerName:    providerName,
+		environment:     environment,
+		provider:        provider,
 	}
 }
 
@@ -56,22 +64,54 @@ func (r *AccessRequestReconciler) Reconcile(ctx context.Context, req reconcile.R
 			}
 		}
 	}
-	// 2. TODO: reconcile obj and report status
-	if len(obj.Status.Conditions) == 0 {
-		meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
-			Type:    "Ready",
-			Status:  metav1.ConditionTrue,
-			Reason:  "ReconcileSuccess",
-			Message: "AccessRequest is ready",
-		})
-		obj.Status.ObservedGeneration = obj.GetGeneration()
-		obj.Status.Phase = "Ready"
+	// 2. reconcile and report status
+	if !libutils.IsClusterProviderResponsibleForAccessRequest(obj, r.providerName) {
+		log.Info("Not responsible for this AccessRequest, skipping")
+		return reconcile.Result{}, nil
 	}
-	if err := r.platformCluster.Client().Status().Update(ctx, obj); err != nil {
-		log.Error(err, "Failed to update AccessRequest status")
-		return ctrl.Result{}, err
+	if obj.Spec.ClusterRef == nil {
+		return reconcile.Result{}, r.updateStatus(ctx, obj, obj.DeepCopy(), fmt.Errorf("AccessRequest %q/%q has no cluster reference", obj.Namespace, obj.Name))
 	}
-	return reconcile.Result{}, nil
+
+	cluster := &clustersv1alpha1.Cluster{}
+	clusterRef := types.NamespacedName{Name: obj.Spec.ClusterRef.Name, Namespace: obj.Spec.ClusterRef.Namespace}
+	if err := r.platformCluster.Client().Get(ctx, clusterRef, cluster); err != nil {
+		return reconcile.Result{}, r.updateStatus(ctx, obj, obj.DeepCopy(), fmt.Errorf("error getting Cluster %q: %w", clusterRef, err))
+	}
+
+	old := obj.DeepCopy()
+	if !obj.DeletionTimestamp.IsZero() {
+		return reconcile.Result{}, r.updateStatus(ctx, obj, old, r.handleDelete(ctx, obj, cluster))
+	}
+	res, err := r.handleCreateOrUpdate(ctx, obj, cluster)
+	return res, r.updateStatus(ctx, obj, old, err)
+}
+
+// updateStatus reports the reconcile outcome on the AccessRequest and returns
+// the reconcile error.
+func (r *AccessRequestReconciler) updateStatus(ctx context.Context, obj, old *clustersv1alpha1.AccessRequest, reconcileError error) error {
+	status := metav1.ConditionTrue
+	reason := "ReconcileSuccess"
+	message := "AccessRequest is ready"
+	if reconcileError != nil {
+		status = metav1.ConditionFalse
+		reason = "ReconcileError"
+		message = reconcileError.Error()
+	}
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               "Ready",
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: obj.Generation,
+	})
+	obj.Status.ObservedGeneration = obj.Generation
+	if !equality.Semantic.DeepEqual(old.Status, obj.Status) {
+		if err := r.platformCluster.Client().Status().Patch(ctx, obj, client.MergeFrom(old)); err != nil {
+			return fmt.Errorf("error patching AccessRequest status: %w", err)
+		}
+	}
+	return reconcileError
 }
 
 func (r *AccessRequestReconciler) SetupWithManager(mgr manager.Manager) error {
@@ -85,6 +125,6 @@ func (r *AccessRequestReconciler) SetupWithManager(mgr manager.Manager) error {
 				return libutils.IsClusterProviderResponsibleForAccessRequest(ar, r.providerName)
 			}),
 		)).
-		Owns(&corev1.Secret{}). // watch the managed kubeconfig
+		Owns(&corev1.Secret{}).
 		Complete(r)
 }
