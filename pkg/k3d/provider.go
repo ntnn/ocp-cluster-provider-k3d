@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"time"
 
 	k3dclient "github.com/k3d-io/k3d/v5/pkg/client"
@@ -11,6 +12,7 @@ import (
 	k3dv1alpha5 "github.com/k3d-io/k3d/v5/pkg/config/v1alpha5"
 	k3druntimes "github.com/k3d-io/k3d/v5/pkg/runtimes"
 	k3dtypes "github.com/k3d-io/k3d/v5/pkg/types"
+	k3dutil "github.com/k3d-io/k3d/v5/pkg/util"
 	k3dversion "github.com/k3d-io/k3d/v5/version"
 	"github.com/spf13/viper"
 	"k8s.io/client-go/tools/clientcmd"
@@ -200,6 +202,17 @@ func (provider *k3dProvider) simpleConfig(name string) (k3dv1alpha5.SimpleConfig
 	}
 	if simple.Image == "" {
 		simple.Image = fmt.Sprintf("%s:%s", k3dtypes.DefaultK3sImageRepo, k3dversion.K3sVersion)
+	}
+	if simple.ExposeAPI.HostPort == "" {
+		port, err := k3dutil.GetFreePort()
+		if err != nil {
+			return k3dv1alpha5.SimpleConfig{}, fmt.Errorf("finding free API server host port for cluster %q: %w", name, err)
+		}
+		simple.ExposeAPI.HostPort = strconv.Itoa(port)
+	}
+	if simple.ExposeAPI.Host == "" && simple.ExposeAPI.HostIP == "" {
+		simple.ExposeAPI.Host = "127.0.0.1"
+		simple.ExposeAPI.HostIP = "0.0.0.0"
 	}
 	simple.Options.K3dOptions.Wait = true
 	simple.Options.K3dOptions.Timeout = provider.opts.Timeout
