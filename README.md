@@ -1,77 +1,189 @@
-[![REUSE status](https://api.reuse.software/badge/github.com/openmcp-project/cluster-provider-template)](https://api.reuse.software/info/github.com/openmcp-project/cluster-provider-template)
+[![REUSE status](https://api.reuse.software/badge/github.com/openmcp-project/cluster-provider-k3d)](https://api.reuse.software/info/github.com/openmcp-project/cluster-provider-k3d)
 
-# cluster-provider-template
+# cluster-provider-k3d
 
 ## About this project
 
-A template for building @openmcp-project Cluster Providers.
+A cluster provider for [OpenMCP](https://github.com/openmcp-project/openmcp-operator) that uses [k3d](https://k3d.io) to provision and manage Kubernetes clusters. This provider enables you to create and manage multiple Kubernetes clusters running as Docker containers, making it ideal for:
 
-## Requirements and Setup
+- **Local Development**: Quickly spin up multiple clusters for testing multi-cluster scenarios
+- **E2E Testing**: Automated testing of multi-cluster applications and operators
+- **CI/CD Pipelines**: Lightweight cluster provisioning for testing environments
 
-1. Create a new repository based on this template.
-2. Install [opencontrolplane-gen](https://github.com/openmcp-project/opencontrolplane-gen).
-3. Use `task template:generate-provider` to create a new Cluster Provider.
-4. Test your Cluster Provider with `task test-e2e`.
+## 🏗️ Installation
 
-The template generates a basic Cluster Provider with the following 3 Controllers:
+### Local Development
 
-- [accessrequest/controller.go](./internal/controller/accessrequest/controller.go): Reconcile `AccessRequest` resources that have been assigned to your Cluster Provider.
-- [cluster/controller.go](./internal/controller/cluster/controller.go): Reconcile `Cluster` resources that have been assigned to your Cluster Provider.
-- [config/controller.go](./internal/controller/config/controller.go): Create `ClusterProfile` resources based on the `ProviderConfig` of your Cluster Provider.
+Prerequisites: docker, [k3d](https://k3d.io) v5, kubectl, [task](https://taskfile.dev), go.
 
-For a detailed guide on setup and usage, please refer to the full [Cluster Provider Development Guide](https://open-control-plane.io/developers/clusterprovider/develop).
-
-## Template Taskfiles
-
-This template contains two Taskfiles:
-
-- Taskfile.yaml contains the tasks to use once you created a Cluster Provider based on this template.
-- Taskfile_template.yaml contains the tasks to use while working with the template. This Taskfile can be removed once you used this template to create a Cluster Provider.
-
-The following sections give a brief overview of the template specific tasks.
-
-### User tasks
-
-To generate a new Cluster Provider, use `task template:generate-provider`:
+Deploy - creates a k3d platform cluster, builds the provider image, deploys the [openmcp-operator](https://github.com/openmcp-project/openmcp-operator), this provider and the [ocpctl](https://github.com/openmcp-project/ocpctl)-default service providers (crossplane, flux, kro, ocm, gateway), waits for the onboarding cluster (the first provisioned k3d cluster):
 
 ```shell
-task template:generate-provider name=foo module=github.com/yourorg/cluster-provider-foo
+./hack/local-dev.sh deploy
 ```
 
-Add `dryrun=true` to print the result without applying the changes to disk.
+Tear down, deletes **all** k3d clusters, including provisioned ones:
 
-`template:generate-provider` supports the following arguments:
+```shell
+./hack/local-dev.sh reset
+```
 
-- `dryrun`: Print in-memory result to stdout without altering any files (default false)
-- `name`: Name of the Cluster Provider (default "example")
-- `module` The go module name of your Cluster Provider (default "github.com/openmcp-project/cluster-provider-example")
+## Requesting a cluster
 
-### Development tasks
+Create a `Cluster` resource with the `k3d` profile on the platform cluster:
 
-The following tasks are useful to test any template code changes.
+```yaml
+apiVersion: clusters.openmcp.cloud/v1alpha1
+kind: Cluster
+metadata:
+  name: my-cluster
+  namespace: default
+spec:
+  kubernetes: {}
+  profile: k3d
+  purposes:
+    - workload
+  tenancy: Exclusive
+```
 
-- `template:dev:gen`: Executes the template with the default values to render "cluster-provider-example" for local development.
-- `template:dev:img`: Builds a container image for "cluster-provider-example". This also includes code validating.
-- `template:dev:e2e`: Executes e2e tests for "cluster-provider-example".
+```sh
+kubectl --kubeconfig ./platform.kubeconfig apply -f ./hack/cluster.yaml
+```
 
-All `template:dev` tasks support the following arguments:
+The k3d cluster is named `my-cluster-<uid-prefix>`.
+The name can be overridden with the `k3d.cluster.open-control-plane.io/name` annotation.
 
-- `debug`: enables debug logs of [opencontrolplane-gen](https://github.com/openmcp-project/opencontrolplane-gen).
+```shell
+kubectl wait --for='jsonpath={.status.phase}=Ready' cluster/my-cluster --timeout=120s
+kubectl get cluster my-cluster -o jsonpath='{.status}' | jq
+```
 
-## Cluster Provider Runtime Flags
+### Access from within the platform
 
-The generated platform service supports the following runtime flags:
+Create an `AccessRequest` referencing the cluster:
 
-- `--verbosity`: Logging verbosity level (see [controller-runtime logging](https://github.com/kubernetes-sigs/controller-runtime/blob/main/TMP-LOGGING.md))
-- `--environment`: Name of the environment (required for operation)
-- `--provider-name`: Name of the provider resource (required for operation)
-- `--metrics-bind-address`: Address for the metrics endpoint (default: `0`, use `:8443` for HTTPS or `:8080` for HTTP)
-- `--health-probe-bind-address`: Address for health probe endpoint (default: `:8081`)
-- `--leader-elect`: Enable leader election for controller manager (default: `false`)
-- `--metrics-secure`: Serve metrics endpoint securely via HTTPS (default: `true`)
-- `--enable-http2`: Enable HTTP/2 for metrics and webhook servers (default: `false`)
+```yaml
+apiVersion: clusters.openmcp.cloud/v1alpha1
+kind: AccessRequest
+metadata:
+  name: my-cluster-admin
+  namespace: default
+spec:
+  clusterRef:
+    name: my-cluster
+    namespace: default
+  token:
+    permissions:
+    - rules:
+      - apiGroups: ["*"]
+        resources: ["*"]
+        verbs: ["*"]
+```
 
-For a complete list of available flags, run the generated binary with `-h` or `--help`.
+```sh
+kubectl apply -f ./hack/accessrequest.yaml
+```
+
+cluster-provider-k3d currently only provides admin service accounts.
+
+Once granted, the kubeconfig is in a secret next to the AccessRequest:
+
+```shell
+kubectl wait --for='jsonpath={.status.phase}=Granted' accessrequest/my-cluster-admin --timeout=120s
+kubectl get secret my-cluster-admin.kubeconfig -o jsonpath='{.data.kubeconfig}' | base64 -d > my-cluster.kubeconfig
+```
+
+The kubeconfig points at the cluster's serverlb node name on the shared docker network — reachable from pods on the platform cluster, not from the host.
+
+### Access from the host
+
+The provisioned clusters are ordinary k3d clusters on the host's docker daemon:
+
+```shell
+k3d cluster list
+k3d kubeconfig write <k3dClusterName>   # name from .status.providerStatus.k3dClusterName
+```
+
+### Deploy an OpenMCP managed cluster
+
+Following <https://open-control-plane.io/users/getting-started/onboard>:
+
+Create a Project:
+
+```yaml
+apiVersion: core.openmcp.cloud/v1alpha1
+kind: Project
+metadata:
+  name: platform-team
+  annotations:
+    openmcp.cloud/display-name: Platform Team
+spec:
+  members:
+    - kind: User
+      name: system:admin
+      roles:
+        - admin
+```
+
+```shell
+kubectl --kubeconfig onboarding.kubeconfig apply -f ./hack/project.yaml
+```
+
+And a Workspace inside:
+
+```yaml
+apiVersion: core.openmcp.cloud/v1alpha1
+kind: Workspace
+metadata:
+  name: dev
+  namespace: project-platform-team
+  annotations:
+    openmcp.cloud/display-name: Platform Team - Dev
+spec:
+  members:
+    - kind: User
+      name: system:admin
+      roles:
+        - admin
+```
+
+```shell
+kubectl --kubeconfig onboarding.kubeconfig apply -f ./hack/workspace.yaml
+```
+
+And a ControlPLane:
+
+```yaml
+apiVersion: core.open-control-plane.io/v2alpha1
+kind: ControlPlane
+metadata:
+  name: my-controlplane
+  namespace: project-platform-team--ws-dev
+spec:
+  iam:
+    oidc:
+      defaultProvider:
+        roleBindings:
+        - roleRefs:
+          - kind: ClusterRole
+            name: cluster-admin
+          subjects:
+          - kind: User
+            name: system:admin
+    tokens:
+    - name: ci-service-token
+      roleRefs:
+      - kind: ClusterRole
+        name: cluster-admin
+```
+
+## Configuration
+
+k3d supports a [config file](https://k3d.io/stable/usage/configfile/) in `K3D_CONFIG_FILE` to customize clusters.
+
+If present the cluster-provider-k3d uses it to create clusters, but
+name, wait behaviour and kubeconfig handling are always overridden to
+the values openmcp/the provider expect.
 
 ## Support, Feedback, Contributing
 

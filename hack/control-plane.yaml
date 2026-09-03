@@ -1,0 +1,21 @@
+apiVersion: core.open-control-plane.io/v2alpha1
+kind: ControlPlane
+metadata:
+  name: my-controlplane
+  namespace: project-platform-team--ws-dev
+spec:
+  iam:
+    oidc:
+      defaultProvider:
+        roleBindings:
+        - roleRefs:
+          - kind: ClusterRole
+            name: cluster-admin
+          subjects:
+          - kind: User
+            name: system:admin
+    tokens:
+    - name: ci-service-token
+      roleRefs:
+      - kind: ClusterRole
+        name: cluster-admin

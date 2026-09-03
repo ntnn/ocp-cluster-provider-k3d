@@ -1,0 +1,15 @@
+apiVersion: clusters.openmcp.cloud/v1alpha1
+kind: AccessRequest
+metadata:
+  name: my-cluster-admin
+  namespace: default
+spec:
+  clusterRef:
+    name: my-cluster
+    namespace: default
+  token:
+    permissions:
+    - rules:
+      - apiGroups: ["*"]
+        resources: ["*"]
+        verbs: ["*"]

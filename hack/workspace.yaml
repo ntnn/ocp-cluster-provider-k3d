@@ -1,0 +1,13 @@
+apiVersion: core.openmcp.cloud/v1alpha1
+kind: Workspace
+metadata:
+  name: dev
+  namespace: project-platform-team
+  annotations:
+    openmcp.cloud/display-name: Platform Team - Dev
+spec:
+  members:
+    - kind: User
+      name: system:admin
+      roles:
+        - admin

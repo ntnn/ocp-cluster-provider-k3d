@@ -1,0 +1,12 @@
+apiVersion: core.openmcp.cloud/v1alpha1
+kind: Project
+metadata:
+  name: platform-team
+  annotations:
+    openmcp.cloud/display-name: Platform Team
+spec:
+  members:
+    - kind: User
+      name: system:admin
+      roles:
+        - admin
