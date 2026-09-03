@@ -14,6 +14,8 @@ includes:
   shared:
     taskfile: hack/common/Taskfile_controller.yaml
     flatten: true
+    vars:
+      DOCKERFILE: '{{.ROOT_DIR}}/Dockerfile'
   template:
     taskfile: Taskfile_template.yaml
 
