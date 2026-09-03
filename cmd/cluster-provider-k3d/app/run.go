@@ -1,4 +1,3 @@
-//go:generate opencontrolplane-gen
 package app
 
 import (
@@ -23,14 +22,10 @@ import (
 	openmcpconst "github.com/openmcp-project/openmcp-operator/api/constants"
 	"github.com/openmcp-project/openmcp-operator/lib/clusteraccess"
 
-	// opencontrolplane-gen:replace github.com/openmcp-project/cluster-provider-template=MODULE
-	"github.com/openmcp-project/cluster-provider-template/api/providerscheme"
-	// opencontrolplane-gen:replace github.com/openmcp-project/cluster-provider-template=MODULE
-	"github.com/openmcp-project/cluster-provider-template/internal/controller/accessrequest"
-	// opencontrolplane-gen:replace github.com/openmcp-project/cluster-provider-template=MODULE
-	"github.com/openmcp-project/cluster-provider-template/internal/controller/cluster"
-	// opencontrolplane-gen:replace github.com/openmcp-project/cluster-provider-template=MODULE
-	"github.com/openmcp-project/cluster-provider-template/internal/controller/config"
+	"github.com/openmcp-project/cluster-provider-k3d/api/providerscheme"
+	"github.com/openmcp-project/cluster-provider-k3d/internal/controller/accessrequest"
+	"github.com/openmcp-project/cluster-provider-k3d/internal/controller/cluster"
+	"github.com/openmcp-project/cluster-provider-k3d/internal/controller/config"
 )
 
 var setupLog logging.Logger
@@ -234,8 +229,7 @@ func (o *RunOptions) Run(ctx context.Context) error {
 		HealthProbeBindAddress: o.ProbeAddr,
 		PprofBindAddress:       o.PprofAddr,
 		LeaderElection:         o.EnableLeaderElection,
-		// opencontrolplane-gen:replace foo=PROVIDER_NAME
-		LeaderElectionID: "github.com/openmcp-project/cluster-provider-foo",
+		LeaderElectionID: "github.com/openmcp-project/cluster-provider-k3d",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly

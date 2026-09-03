@@ -50,5 +50,5 @@ tasks:
         if: '{{ eq .dryrun "false" }}'
       - cmd: go mod edit -module {{.module}}
         if: '{{ eq .dryrun "false" }}'
-      - cmd: sed -i '' 's/cluster-provider-template/cluster-provider-{{.name}}/g' Taskfile.yaml
+      - cmd: sed -i 's/cluster-provider-template/cluster-provider-{{.name}}/g' Taskfile.yaml
         if: '{{ eq .dryrun "false" }}'

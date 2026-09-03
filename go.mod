@@ -1,4 +1,4 @@
-module github.com/openmcp-project/cluster-provider-template
+module github.com/openmcp-project/cluster-provider-k3d
 
 go 1.26.5
 

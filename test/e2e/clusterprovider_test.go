@@ -1,4 +1,3 @@
-//go:generate opencontrolplane-gen
 package e2e
 
 import (
@@ -14,8 +13,7 @@ import (
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 	"sigs.k8s.io/e2e-framework/pkg/features"
 
-	// opencontrolplane-gen:replace github.com/openmcp-project/cluster-provider-template=MODULE
-	"github.com/openmcp-project/cluster-provider-template/api/v1alpha1"
+	"github.com/openmcp-project/cluster-provider-k3d/api/v1alpha1"
 	"github.com/openmcp-project/opencontrolplane-runtime/pkg/clusterprovider"
 	clustersv1alpha1 "github.com/openmcp-project/openmcp-operator/api/clusters/v1alpha1"
 	"github.com/openmcp-project/openmcp-operator/api/common"
@@ -31,8 +29,7 @@ func TestClusterProvider(t *testing.T) {
 			v1alpha1.AddToScheme(c.Client().Resources().GetScheme())
 			clustersv1alpha1.AddToScheme(c.Client().Resources().GetScheme())
 			config := &v1alpha1.ProviderConfig{}
-			// opencontrolplane-gen:replace configname=PROVIDER_NAME
-			config.SetName("configname")
+			config.SetName("k3d")
 			if err := c.Client().Resources().Create(ctx, config); err != nil {
 				t.Errorf("failed to create ProviderConfig: %v", err)
 			}

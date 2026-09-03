@@ -1,4 +1,3 @@
-//go:generate opencontrolplane-gen
 package providerscheme
 
 import (
@@ -8,8 +7,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 
 	clustersv1alpha1 "github.com/openmcp-project/openmcp-operator/api/clusters/v1alpha1"
-	// opencontrolplane-gen:replace github.com/openmcp-project/cluster-provider-template=MODULE
-	"github.com/openmcp-project/cluster-provider-template/api/v1alpha1"
+	"github.com/openmcp-project/cluster-provider-k3d/api/v1alpha1"
 )
 
 // InstallCRDAPIs installs the CRD APIs in the scheme.

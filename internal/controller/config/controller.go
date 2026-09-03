@@ -1,4 +1,3 @@
-//go:generate opencontrolplane-gen
 package config
 
 import (
@@ -12,8 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	// opencontrolplane-gen:replace github.com/openmcp-project/cluster-provider-template=MODULE
-	"github.com/openmcp-project/cluster-provider-template/api/v1alpha1"
+	"github.com/openmcp-project/cluster-provider-k3d/api/v1alpha1"
 
 	ctrlutils "github.com/openmcp-project/controller-utils/pkg/controller"
 	apiconst "github.com/openmcp-project/openmcp-operator/api/constants"
