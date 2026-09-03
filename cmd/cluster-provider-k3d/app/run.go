@@ -26,6 +26,7 @@ import (
 	"github.com/openmcp-project/cluster-provider-k3d/internal/controller/accessrequest"
 	"github.com/openmcp-project/cluster-provider-k3d/internal/controller/cluster"
 	"github.com/openmcp-project/cluster-provider-k3d/internal/controller/config"
+	"github.com/openmcp-project/cluster-provider-k3d/pkg/k3d"
 )
 
 var setupLog logging.Logger
@@ -229,7 +230,7 @@ func (o *RunOptions) Run(ctx context.Context) error {
 		HealthProbeBindAddress: o.ProbeAddr,
 		PprofBindAddress:       o.PprofAddr,
 		LeaderElection:         o.EnableLeaderElection,
-		LeaderElectionID: "github.com/openmcp-project/cluster-provider-k3d",
+		LeaderElectionID:       "github.com/openmcp-project/cluster-provider-k3d",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
@@ -255,7 +256,17 @@ func (o *RunOptions) Run(ctx context.Context) error {
 	if err := accessrequest.NewAccessRequestReconciler(o.PlatformCluster, o.ProviderName).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("unable to add AccessRequestReconciler to manager: %w", err)
 	}
-	if err := cluster.NewClusterReconciler(o.PlatformCluster, o.ProviderName).SetupWithManager(mgr); err != nil {
+	clusterReconciler, err := cluster.NewClusterReconciler(cluster.Options{
+		PlatformCluster: o.PlatformCluster,
+		ProviderName:    o.ProviderName,
+		Provider: k3d.New(k3d.Options{
+			ConfigFile: os.Getenv("K3D_CONFIG_FILE"),
+		}),
+	})
+	if err != nil {
+		return fmt.Errorf("unable to create ClusterReconciler: %w", err)
+	}
+	if err := clusterReconciler.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("unable to add ClusterReconciler to manager: %w", err)
 	}
 
