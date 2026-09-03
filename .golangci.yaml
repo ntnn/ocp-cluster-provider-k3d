@@ -11,6 +11,7 @@ linters:
     - goconst
     - gocyclo
     - govet
+    - importas
     - ineffassign
     - misspell
     - nakedret
@@ -24,6 +25,12 @@ linters:
     revive:
       rules:
         - name: comment-spacings
+    importas:
+      no-unaliased: true
+      alias:
+        # ensure k3d packages are prefixed with k3d
+        - pkg: github.com/k3d-io/k3d/v5/pkg/(?:[\w]+/)*([\w]+)
+          alias: k3d${1}
   exclusions:
     generated: lax
     presets:
