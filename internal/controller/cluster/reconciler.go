@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -79,6 +82,9 @@ func (r *reconciler) commitStatus(ctx context.Context) error {
 		return nil
 	}
 	if err := r.opts.PlatformCluster.Client().Status().Patch(ctx, r.cluster, client.MergeFrom(r.old)); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
 		return fmt.Errorf("patching Cluster status: %w", err)
 	}
 	return nil
@@ -162,33 +168,65 @@ func (r *reconciler) publishAccess(ctx context.Context) error {
 		return fmt.Errorf("setting provider status: %w", err)
 	}
 
-	externalHost, err := r.serverHost(ctx, name, false)
+	externalCfg, err := r.restConfig(ctx, name, false)
 	if err != nil {
 		return err
 	}
-	internalHost, err := r.serverHost(ctx, name, true)
+	internalCfg, err := r.restConfig(ctx, name, true)
 	if err != nil {
 		return err
 	}
 	r.cluster.Status.Endpoints = clustersv1alpha1.Endpoints{}
-	r.cluster.Status.Endpoints.Set(clustersv1alpha1.APISERVER_ENDPOINT_EXTERNAL, externalHost)
-	r.cluster.Status.Endpoints.Set(clustersv1alpha1.APISERVER_ENDPOINT_INTERNAL, internalHost)
+	r.cluster.Status.Endpoints.Set(clustersv1alpha1.APISERVER_ENDPOINT_EXTERNAL, externalCfg.Host)
+	r.cluster.Status.Endpoints.Set(clustersv1alpha1.APISERVER_ENDPOINT_INTERNAL, internalCfg.Host)
+
+	if err := r.ensureDisplayMetadata(ctx, internalCfg, name); err != nil {
+		return err
+	}
 
 	r.cluster.Status.Phase = commonapi.StatusPhaseReady
 	r.setConditionReady(true, "ClusterReady", "")
 	return nil
 }
 
-func (r *reconciler) serverHost(ctx context.Context, name string, internal bool) (string, error) {
+// ensureDisplayMetadata maintains the labels and annotation that back the
+// kubectl printcolumns (VERSION, PROVIDER, INFO) on the Cluster resource.
+// Patched via MergeFrom so only these keys are sent, like the gardener
+// provider does.
+func (r *reconciler) ensureDisplayMetadata(ctx context.Context, cfg *rest.Config, name string) error {
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("creating discovery client for k3d cluster %q: %w", name, err)
+	}
+	serverVersion, err := discoveryClient.ServerVersion()
+	if err != nil {
+		return fmt.Errorf("discovering server version of k3d cluster %q: %w", name, err)
+	}
+
+	old := r.cluster.DeepCopy()
+	metav1.SetMetaDataLabel(&r.cluster.ObjectMeta, clustersv1alpha1.ProviderLabel, r.opts.ProviderName)
+	// '+' (as in v1.32.5+k3s1) is not a valid label value character.
+	metav1.SetMetaDataLabel(&r.cluster.ObjectMeta, clustersv1alpha1.K8sVersionLabel, strings.ReplaceAll(serverVersion.GitVersion, "+", "_"))
+	metav1.SetMetaDataAnnotation(&r.cluster.ObjectMeta, clustersv1alpha1.ProviderInfoAnnotation, name)
+	if equality.Semantic.DeepEqual(old.ObjectMeta, r.cluster.ObjectMeta) {
+		return nil
+	}
+	if err := r.opts.PlatformCluster.Client().Patch(ctx, r.cluster, client.MergeFrom(old)); err != nil {
+		return fmt.Errorf("patching Cluster display metadata: %w", err)
+	}
+	return nil
+}
+
+func (r *reconciler) restConfig(ctx context.Context, name string, internal bool) (*rest.Config, error) {
 	kubeconfig, err := r.opts.Provider.Kubeconfig(ctx, name, internal)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	restConfig, err := clientcmd.RESTConfigFromKubeConfig([]byte(kubeconfig))
 	if err != nil {
-		return "", fmt.Errorf("parsing kubeconfig for k3d cluster %q: %w", name, err)
+		return nil, fmt.Errorf("parsing kubeconfig for k3d cluster %q: %w", name, err)
 	}
-	return restConfig.Host, nil
+	return restConfig, nil
 }
 
 func foreignFinalizers(cluster *clustersv1alpha1.Cluster) []string {
