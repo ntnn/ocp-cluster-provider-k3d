@@ -253,15 +253,21 @@ func (o *RunOptions) Run(ctx context.Context) error {
 	if err := config.NewProviderConfigReconciler(o.PlatformCluster, o.ProviderName).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("unable to add ProviderConfigReconciler to manager: %w", err)
 	}
-	if err := accessrequest.NewAccessRequestReconciler(o.PlatformCluster, o.ProviderName).SetupWithManager(mgr); err != nil {
+	k3dProvider := k3d.New(k3d.Options{
+		ConfigFile: os.Getenv("K3D_CONFIG_FILE"),
+	})
+	if err := accessrequest.NewAccessRequestReconciler(
+		o.PlatformCluster,
+		o.ProviderName,
+		o.Environment,
+		k3dProvider,
+	).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("unable to add AccessRequestReconciler to manager: %w", err)
 	}
 	clusterReconciler, err := cluster.NewClusterReconciler(cluster.Options{
 		PlatformCluster: o.PlatformCluster,
 		ProviderName:    o.ProviderName,
-		Provider: k3d.New(k3d.Options{
-			ConfigFile: os.Getenv("K3D_CONFIG_FILE"),
-		}),
+		Provider:        k3dProvider,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to create ClusterReconciler: %w", err)
