@@ -1,0 +1,11 @@
+apiVersion: clusters.openmcp.cloud/v1alpha1
+kind: Cluster
+metadata:
+  name: my-cluster
+  namespace: default
+spec:
+  kubernetes: {}
+  profile: k3d
+  purposes:
+    - workload
+  tenancy: Exclusive
