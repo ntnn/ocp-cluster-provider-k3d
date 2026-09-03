@@ -270,6 +270,12 @@ spec:
 EOF
 }
 
+restart_provider() {
+    kubectl get deployment cp-k3d -n openmcp-system &> /dev/null || return 0
+    kubectl rollout restart deployment/cp-k3d -n openmcp-system || die "failed to restart provider deployment"
+    kubectl rollout status deployment/cp-k3d -n openmcp-system --timeout=120s || die "provider deployment did not become ready"
+}
+
 create_provider_config() {
     log "creating ProviderConfig"
     kubectl wait --for=create customresourcedefinitions.apiextensions.k8s.io/providerconfigs.k3d.cluster.open-control-plane.io --timeout=120s \
@@ -317,6 +323,7 @@ deploy() {
     import_images
     deploy_openmcp_operator
     install_cluster_provider
+    restart_provider
     create_provider_config
     create_platform_cluster_resource
     wait_for_onboarding_cluster
