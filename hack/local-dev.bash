@@ -23,6 +23,28 @@ OPENMCP_ENVIRONMENT=${OPENMCP_ENVIRONMENT:-debug}
 # Defaults to the locally built image, see build_provider_image.
 OPENMCP_CP_K3D_IMAGE=${OPENMCP_CP_K3D_IMAGE:-ghcr.io/openmcp-project/images/cluster-provider-k3d:$("$root/hack/common/get-version.sh")}
 
+# Service providers and platform services, versions matching ocpctl's
+# environment defaults (pkg/config/environment-defaults.yaml).
+# renovate: datasource=docker registryUrl=https://ghcr.io depName=openmcp-project/images/service-provider-crossplane
+SP_CROSSPLANE_IMAGE=${SP_CROSSPLANE_IMAGE:-ghcr.io/openmcp-project/images/service-provider-crossplane:v1.0.2}
+# renovate: datasource=docker registryUrl=https://ghcr.io depName=openmcp-project/images/service-provider-flux
+SP_FLUX_IMAGE=${SP_FLUX_IMAGE:-ghcr.io/openmcp-project/images/service-provider-flux:v1.1.0}
+# renovate: datasource=docker registryUrl=https://ghcr.io depName=open-component-model/images/service-provider-ocm
+SP_OCM_IMAGE=${SP_OCM_IMAGE:-ghcr.io/open-component-model/images/service-provider-ocm:v0.3.0}
+# renovate: datasource=docker registryUrl=https://ghcr.io depName=openmcp-project/images/service-provider-kro
+SP_KRO_IMAGE=${SP_KRO_IMAGE:-ghcr.io/openmcp-project/images/service-provider-kro:v1.1.0}
+# renovate: datasource=docker registryUrl=https://ghcr.io depName=openmcp-project/images/platform-service-gateway
+PS_GATEWAY_IMAGE=${PS_GATEWAY_IMAGE:-ghcr.io/openmcp-project/images/platform-service-gateway:v0.0.14}
+# renovate: datasource=docker registryUrl=https://ghcr.io depName=openmcp-project/images/platform-service-project-workspace
+# v2.4.0 enforces FIPS 140-3 and fails to verify k3s' ECDSA-signed CA, stay below until fixed upstream.
+PS_PROJECT_WORKSPACE_IMAGE=${PS_PROJECT_WORKSPACE_IMAGE:-ghcr.io/openmcp-project/images/platform-service-project-workspace:v2.3.0}
+FLUX2_INSTALL_URL=${FLUX2_INSTALL_URL:-https://github.com/fluxcd/flux2/releases/latest/download/install.yaml}
+ENVOY_PROXY_IMAGE=${ENVOY_PROXY_IMAGE:-ghcr.io/openmcp-project/components/github.com/openmcp-project/openmcp/images/envoy-proxy:distroless-v1.36.2}
+ENVOY_GATEWAY_IMAGE=${ENVOY_GATEWAY_IMAGE:-ghcr.io/openmcp-project/components/github.com/openmcp-project/openmcp/images/envoy-gateway:v1.5.4}
+ENVOY_RATELIMIT_IMAGE=${ENVOY_RATELIMIT_IMAGE:-ghcr.io/openmcp-project/components/github.com/openmcp-project/openmcp/images/envoy-ratelimit:99d85510}
+ENVOY_GATEWAY_CHART_URL=${ENVOY_GATEWAY_CHART_URL:-oci://ghcr.io/openmcp-project/components/github.com/openmcp-project/openmcp/charts/envoy-gateway}
+ENVOY_GATEWAY_CHART_TAG=${ENVOY_GATEWAY_CHART_TAG:-1.5.4}
+
 platform_cluster=platform
 # Created k3d clusters join this network so that pods on the platform cluster
 # can reach their API servers via container IP.
@@ -34,8 +56,11 @@ create_platform_cluster() {
     else
         log "creating platform k3d cluster"
         # The host docker socket is mounted so the provider pod can drive k3d.
+        # Disable Traefik, its bundled Gateway API CRDs conflict with the
+        # envoy-gateway chart the gateway platform service installs.
         k3d cluster create "$platform_cluster" \
             --volume /var/run/docker.sock:/var/run/host-docker.sock@server:0 \
+            --k3s-arg "--disable=traefik@server:*" \
             --wait \
             || die "failed to create platform cluster"
     fi
@@ -231,6 +256,12 @@ install_cluster_provider() {
     log "installing k3d cluster provider"
     kubectl wait --for=create customresourcedefinitions.apiextensions.k8s.io/clusterproviders.openmcp.cloud --timeout=60s \
         || die "clusterproviders CRD did not appear"
+    # The gateway's envoy loadbalancer is exposed on the platform node
+    # via servicelb. Alias the webhook hostname to it in every created
+    # cluster so their API servers can call webhooks exposed through the
+    # gateway.
+    platform_node_ip=$(docker inspect -f "{{(index .NetworkSettings.Networks \"${platform_network}\").IPAddress}}" "k3d-${platform_cluster}-server-0") \
+        || die "failed to determine platform node IP"
     kubectl apply -f - << EOF || die "failed to apply ClusterProvider"
 apiVersion: v1
 kind: ConfigMap
@@ -239,11 +270,22 @@ metadata:
   namespace: openmcp-system
 data:
   # SimpleConfig applied to every created cluster; join the platform network
-  # so pods on the platform cluster can reach the created API servers.
+  # so pods on the platform cluster can reach the created API servers, and
+  # disable traefik (its Gateway API CRDs conflict with envoy-gateway).
   config.yaml: |
     apiVersion: k3d.io/v1alpha5
     kind: Simple
     network: ${platform_network}
+    hostAliases:
+      - ip: ${platform_node_ip}
+        hostnames:
+          - pwo-webhooks.platform.openmcp-system.openmcp.cluster.local
+    options:
+      k3s:
+        extraArgs:
+          - arg: --disable=traefik
+            nodeFilters:
+              - server:*
 ---
 apiVersion: openmcp.cloud/v1alpha1
 kind: ClusterProvider
@@ -309,12 +351,133 @@ spec:
 EOF
 }
 
+install_service_providers() {
+    log "installing service providers"
+    kubectl apply -f - << EOF || die "failed to apply service providers"
+apiVersion: openmcp.cloud/v1alpha1
+kind: ServiceProvider
+metadata:
+  name: crossplane
+spec:
+  image: ${SP_CROSSPLANE_IMAGE}
+---
+apiVersion: openmcp.cloud/v1alpha1
+kind: ServiceProvider
+metadata:
+  name: flux
+spec:
+  image: ${SP_FLUX_IMAGE}
+---
+apiVersion: openmcp.cloud/v1alpha1
+kind: ServiceProvider
+metadata:
+  name: ocm
+spec:
+  image: ${SP_OCM_IMAGE}
+---
+apiVersion: openmcp.cloud/v1alpha1
+kind: ServiceProvider
+metadata:
+  name: kro
+spec:
+  image: ${SP_KRO_IMAGE}
+---
+apiVersion: openmcp.cloud/v1alpha1
+kind: PlatformService
+metadata:
+  name: gateway
+spec:
+  image: ${PS_GATEWAY_IMAGE}
+---
+apiVersion: openmcp.cloud/v1alpha1
+kind: PlatformService
+metadata:
+  name: project-workspace
+spec:
+  image: ${PS_PROJECT_WORKSPACE_IMAGE}
+EOF
+}
+
+install_flux() {
+    log "installing flux2 on the platform cluster"
+    kubectl apply -f "$FLUX2_INSTALL_URL" > /dev/null || die "failed to install flux2"
+}
+
+configure_flux_provider() {
+    log "configuring flux service provider"
+    kubectl wait --for=create customresourcedefinitions.apiextensions.k8s.io/providerconfigs.flux.services.open-control-plane.io --timeout=120s \
+        || die "flux providerconfigs CRD did not appear, check the sp-flux-init job"
+    kubectl apply -f - << EOF || die "failed to apply flux ProviderConfig"
+apiVersion: flux.services.open-control-plane.io/v1alpha1
+kind: ProviderConfig
+metadata:
+  name: flux
+spec:
+  versions:
+    - version: "2.8.3"
+      chartVersion: "2.18.2"
+      chartUrl: "oci://ghcr.io/fluxcd-community/charts/flux2"
+EOF
+}
+
+configure_gateway() {
+    log "configuring gateway platform service"
+    kubectl wait --for=create customresourcedefinitions.apiextensions.k8s.io/gatewayserviceconfigs.gateway.openmcp.cloud --timeout=120s \
+        || die "gatewayserviceconfigs CRD did not appear, check the ps-gateway-init job"
+    kubectl apply -f - << EOF || die "failed to apply GatewayServiceConfig"
+apiVersion: gateway.openmcp.cloud/v1alpha1
+kind: GatewayServiceConfig
+metadata:
+  name: gateway
+spec:
+  envoyGateway:
+    images:
+      proxy: "${ENVOY_PROXY_IMAGE}"
+      gateway: "${ENVOY_GATEWAY_IMAGE}"
+      rateLimit: "${ENVOY_RATELIMIT_IMAGE}"
+    chart:
+      url: "${ENVOY_GATEWAY_CHART_URL}"
+      tag: "${ENVOY_GATEWAY_CHART_TAG}"
+  clusters:
+    - selector:
+        matchPurpose: platform
+    - selector:
+        matchPurpose: workload
+  dns:
+    baseDomain: openmcp.cluster.local
+EOF
+}
+
+# configure_project_workspace enables the Project/Workspace onboarding APIs.
+# The init job creates the CRD but then requires this resource to exist and
+# retries until it does.
+configure_project_workspace() {
+    log "configuring project-workspace platform service"
+    kubectl wait --for=create customresourcedefinitions.apiextensions.k8s.io/projectworkspaceconfigs.core.openmcp.cloud --timeout=120s \
+        || die "projectworkspaceconfigs CRD did not appear, check the ps-project-workspace-init job"
+    kubectl apply -f - << EOF || die "failed to apply ProjectWorkspaceConfig"
+apiVersion: core.openmcp.cloud/v1alpha1
+kind: ProjectWorkspaceConfig
+metadata:
+  name: project-workspace
+spec: {}
+EOF
+}
+
 wait_for_onboarding_cluster() {
     log "waiting for onboarding cluster"
     kubectl wait --for=create -n openmcp-system cluster/onboarding --timeout=120s \
         || die "onboarding Cluster resource did not appear"
     kubectl wait --for='jsonpath={.status.phase}=Ready' -n openmcp-system cluster/onboarding --timeout=300s \
         || die "onboarding cluster did not become ready"
+}
+
+export_kubeconfigs() {
+    k3d kubeconfig get platform > platform.kubeconfig
+    log "platform cluster kubeconfig at $(pwd)/platform.kubeconfig"
+    onboarding="$(kubectl --kubeconfig platform.kubeconfig -n openmcp-system get cluster onboarding  -o jsonpath='{.status.providerStatus.k3dClusterName}')"
+    k3d kubeconfig get "$onboarding" > onboarding.kubeconfig
+    log "onboarding cluster kubeconfig at $(pwd)/onboarding.kubeconfig"
 }
 
 deploy() {
@@ -326,13 +489,14 @@ deploy() {
     restart_provider
     create_provider_config
     create_platform_cluster_resource
+    install_service_providers
+    install_flux
+    configure_flux_provider
+    configure_gateway
+    configure_project_workspace
     wait_for_onboarding_cluster
+    export_kubeconfigs
     log "done - see README.md for how to request clusters"
-}
-
-access_platform_cluster() {
-    kubeconfig=$(k3d kubeconfig write "$platform_cluster") || die "failed to write platform kubeconfig"
-    echo "export KUBECONFIG=$kubeconfig"
 }
 
 reset() {
@@ -348,9 +512,8 @@ usage() {
 Usage: $(basename "$0") <command>
 
 Commands:
-    deploy                   Deploy the openMCP environment with the k3d provider
-    access-platform-cluster  Print the KUBECONFIG export for the platform cluster
-    reset [--force]          Delete all k3d clusters
+    deploy           Deploy the openMCP environment with the k3d provider
+    reset [--force]  Delete all k3d clusters
 EOF
 }
 
@@ -361,7 +524,7 @@ shift
 
 case "$subcmd" in
     (deploy) require_tools; deploy;;
-    (access-platform-cluster) require_tools; access_platform_cluster;;
+    (kubeconfigs) require_tools; export_kubeconfigs;;
     (reset) require_tools; reset "$@";;
     (help|-h|--help) usage;;
     (*) die "Unknown subcommand: $subcmd";;
