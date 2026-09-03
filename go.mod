@@ -3,6 +3,7 @@ module github.com/openmcp-project/cluster-provider-k3d
 go 1.26.5
 
 require (
+	github.com/go-logr/logr v1.4.3
 	github.com/k3d-io/k3d/v5 v5.9.0
 	github.com/openmcp-project/controller-utils v0.31.0
 	github.com/openmcp-project/opencontrolplane-runtime v1.2.0
@@ -55,7 +56,6 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/fvbommel/sortorder v1.1.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
-	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-logr/zapr v1.3.0 // indirect
 	github.com/go-openapi/jsonpointer v0.23.1 // indirect

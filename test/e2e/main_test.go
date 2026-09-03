@@ -46,7 +46,7 @@ func TestMain(m *testing.M) {
 				Image: "ghcr.io/openmcp-project/images/cluster-provider-kind:v0.4.2",
 			},
 			{
-				Name: "k3d",
+				Name:               "k3d",
 				Image:              fmt.Sprintf("ghcr.io/openmcp-project/images/cluster-provider-k3d:%s", version),
 				LoadImageToCluster: true,
 				// TODO (optional) use DeploymentSpec to override the default deployment spec that is used to deploy your cluster provider
