@@ -11,6 +11,7 @@ import (
 	k3dv1alpha5 "github.com/k3d-io/k3d/v5/pkg/config/v1alpha5"
 	k3druntimes "github.com/k3d-io/k3d/v5/pkg/runtimes"
 	k3dtypes "github.com/k3d-io/k3d/v5/pkg/types"
+	k3dversion "github.com/k3d-io/k3d/v5/version"
 	"github.com/spf13/viper"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -194,6 +195,12 @@ func (provider *k3dProvider) simpleConfig(name string) (k3dv1alpha5.SimpleConfig
 	}
 
 	simple.Name = name
+	if simple.Servers == 0 {
+		simple.Servers = 1
+	}
+	if simple.Image == "" {
+		simple.Image = fmt.Sprintf("%s:%s", k3dtypes.DefaultK3sImageRepo, k3dversion.K3sVersion)
+	}
 	simple.Options.K3dOptions.Wait = true
 	simple.Options.K3dOptions.Timeout = provider.opts.Timeout
 	simple.Options.KubeconfigOptions.UpdateDefaultKubeconfig = false
