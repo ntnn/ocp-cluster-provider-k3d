@@ -38,11 +38,20 @@ func (o *Options) validate() {
 	}
 }
 
+// DefaultNetwork is the docker network created clusters join when none is
+// configured. Shared so the provider can reach the clusters it creates.
+const DefaultNetwork = "k3d"
+
+type CreateOptions struct {
+	// Network is the docker network the cluster joins; empty means DefaultNetwork.
+	Network string
+}
+
 // Provider defines the interface for managing Kubernetes clusters using k3d.
 // It provides methods to create, delete, check existence of clusters, and retrieve kubeconfig.
 type Provider interface {
 	// CreateCluster creates a new Kubernetes cluster with the given name.
-	CreateCluster(ctx context.Context, name string) error
+	CreateCluster(ctx context.Context, name string, opts CreateOptions) error
 
 	// DeleteCluster deletes the Kubernetes cluster with the given name.
 	DeleteCluster(ctx context.Context, name string) error
@@ -68,8 +77,8 @@ func New(opts Options) Provider {
 }
 
 // CreateCluster implements Provider.
-func (provider *k3dProvider) CreateCluster(ctx context.Context, name string) error {
-	simple, err := provider.simpleConfig(name)
+func (provider *k3dProvider) CreateCluster(ctx context.Context, name string, opts CreateOptions) error {
+	simple, err := provider.simpleConfig(name, opts)
 	if err != nil {
 		return err
 	}
@@ -181,7 +190,7 @@ func internalServerURL(cluster *k3dtypes.Cluster) (string, error) {
 	return fmt.Sprintf("https://%s:%s", server.Name, k3dtypes.DefaultAPIPort), nil
 }
 
-func (provider *k3dProvider) simpleConfig(name string) (k3dv1alpha5.SimpleConfig, error) {
+func (provider *k3dProvider) simpleConfig(name string, opts CreateOptions) (k3dv1alpha5.SimpleConfig, error) {
 	v := viper.New()
 	if provider.opts.ConfigFile != "" {
 		v.SetConfigFile(provider.opts.ConfigFile)
@@ -197,6 +206,10 @@ func (provider *k3dProvider) simpleConfig(name string) (k3dv1alpha5.SimpleConfig
 	}
 
 	simple.Name = name
+	simple.Network = opts.Network
+	if simple.Network == "" {
+		simple.Network = DefaultNetwork
+	}
 	if simple.Servers == 0 {
 		simple.Servers = 1
 	}
