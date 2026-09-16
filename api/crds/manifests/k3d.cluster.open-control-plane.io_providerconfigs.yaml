@@ -40,6 +40,12 @@ spec:
             type: object
           spec:
             description: spec defines the desired state of ProviderConfig
+            properties:
+              network:
+                description: |-
+                  Network is the docker network created clusters join.
+                  Empty means the provider's default shared network.
+                type: string
             type: object
           status:
             description: status defines the observed state of ProviderConfig
