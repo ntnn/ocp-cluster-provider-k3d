@@ -8,7 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	crdutil "github.com/openmcp-project/controller-utils/pkg/crds"
 	clustersv1alpha1 "github.com/openmcp-project/openmcp-operator/api/clusters/v1alpha1"
@@ -18,6 +20,7 @@ import (
 
 	"github.com/openmcp-project/cluster-provider-k3d/api/crds"
 	"github.com/openmcp-project/cluster-provider-k3d/api/providerscheme"
+	"github.com/openmcp-project/cluster-provider-k3d/api/v1alpha1"
 )
 
 func NewInitCommand(so *SharedOptions) *cobra.Command {
@@ -90,6 +93,16 @@ func (o *InitOptions) Run(ctx context.Context) error {
 	crdManager.AddCRDLabelToClusterMapping(clustersv1alpha1.PURPOSE_PLATFORM, o.PlatformCluster)
 	if err := crdManager.CreateOrUpdateCRDs(ctx, &log); err != nil {
 		return fmt.Errorf("error creating/updating CRDs: %w", err)
+	}
+
+	log.Info("Ensuring default ProviderConfig", "name", o.ProviderName)
+	cfg := &v1alpha1.ProviderConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: o.ProviderName,
+		},
+	}
+	if err := o.PlatformCluster.Client().Create(ctx, cfg); client.IgnoreAlreadyExists(err) != nil {
+		return fmt.Errorf("error creating default ProviderConfig %q: %w", o.ProviderName, err)
 	}
 
 	log.Info("Finished init command")
