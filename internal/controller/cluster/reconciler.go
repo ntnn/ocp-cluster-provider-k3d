@@ -22,6 +22,7 @@ import (
 	commonapi "github.com/openmcp-project/openmcp-operator/api/common"
 
 	"github.com/openmcp-project/cluster-provider-k3d/api/v1alpha1"
+	"github.com/openmcp-project/cluster-provider-k3d/pkg/k3d"
 )
 
 // foreignFinalizerRequeue is the poll interval while waiting for other
@@ -141,8 +142,13 @@ func (r *reconciler) ensureK3dCluster(ctx context.Context) error {
 		return err
 	}
 	if !exists {
+		network, err := r.network(ctx)
+		if err != nil {
+			r.setConditionK3dReady(false, "ProviderConfigLookupFailed", err.Error())
+			return err
+		}
 		// CreateCluster blocks until the cluster is ready.
-		if err := r.opts.Provider.CreateCluster(ctx, name); err != nil {
+		if err := r.opts.Provider.CreateCluster(ctx, name, k3d.CreateOptions{Network: network}); err != nil {
 			r.setConditionK3dReady(false, "ClusterCreationFailed", err.Error())
 			return err
 		}
@@ -237,4 +243,19 @@ func foreignFinalizers(cluster *clustersv1alpha1.Cluster) []string {
 		}
 	}
 	return foreign
+}
+
+func (r *reconciler) network(ctx context.Context) (string, error) {
+	profile := &clustersv1alpha1.ClusterProfile{}
+	if err := r.opts.PlatformCluster.Client().Get(ctx, client.ObjectKey{Name: r.cluster.Spec.Profile}, profile); err != nil {
+		return "", fmt.Errorf("getting ClusterProfile %q: %w", r.cluster.Spec.Profile, err)
+	}
+	if profile.Spec.ProviderConfigRef.Name == "" {
+		return "", nil
+	}
+	cfg := &v1alpha1.ProviderConfig{}
+	if err := r.opts.PlatformCluster.Client().Get(ctx, client.ObjectKey{Name: profile.Spec.ProviderConfigRef.Name}, cfg); err != nil {
+		return "", fmt.Errorf("getting ProviderConfig %q: %w", profile.Spec.ProviderConfigRef.Name, err)
+	}
+	return cfg.Spec.Network, nil
 }
