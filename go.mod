@@ -3,7 +3,7 @@ module github.com/openmcp-project/cluster-provider-k3d
 go 1.26.5
 
 require (
-	github.com/go-logr/logr v1.4.3
+	github.com/go-logr/logr v1.4.4
 	github.com/k3d-io/k3d/v5 v5.9.0
 	github.com/openmcp-project/controller-utils v0.31.0
 	github.com/openmcp-project/opencontrolplane-runtime v1.2.0
