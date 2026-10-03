@@ -1,0 +1,22 @@
+name: wait-for-status-checks
+
+on:
+  pull_request:  {}
+
+permissions: {}
+
+jobs:
+  # Branch protection rules can enforce that status checks must pass
+  # before merging - however it requires to name each check explicitly
+  # in the configuration. It is no longer possible to require all
+  # checks.
+  # This job waits for all checks to complete, so it can be set as
+  # _the_ required check in the branch protection rules.
+  wait-for-status-checks:
+    runs-on: ubuntu-latest
+    permissions:
+      checks: read
+    steps:
+      - uses: poseidon/wait-for-status-checks@e7e24423722c5b8e97a6dd5848827d2a412f812d # v0.7.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
